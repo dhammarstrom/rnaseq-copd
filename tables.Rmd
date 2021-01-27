@@ -1,0 +1,982 @@
+---
+title: "Tables"
+output: html_document
+editor_options: 
+  chunk_output_type: console
+---
+
+
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE, message = FALSE, warning = FALSE)
+
+source("./R/lib_fun.R")
+library(knitr)
+library(kableExtra)
+
+```
+
+
+
+```{r table-suppl-interaction-effects, results = "asis"}
+
+# Load cerno and fgsea results.
+
+# full gsea
+full_gsea_df <- readRDS(file = "./data/derivedData/fgsea_full.RDS")
+
+gsea <- full_gsea_df %>%
+    dplyr::select(ID = pathway,
+                  gsea.padj = padj,
+                  gsea.p = pval, 
+                  gsea.es = ES, 
+                  gsea.nes = NES, 
+                  coef) 
+
+
+
+# full cerno
+cerno.test <- readRDS("./data/derivedData/cerno.RDS")
+
+cerno <- cerno.test %>%
+    dplyr::select(ID = Title,
+                  cerno, 
+                  N1, 
+                  cerno.p = P.Value,
+                  cerno.padj = adj.P.Val, 
+                  go.cat, 
+                  coef) 
+
+
+
+#### Read gene set descriptives  #####
+go.descr <- readRDS(file = "./data/derivedData/geneset_descriptives.RDS") %>%
+  mutate(coefs = gsub("tissue_offset", "tissue", coefs)) %>%
+  separate(coefs, into = c("model", "coef"), sep = "_") %>%
+  mutate(coef = gsub("tissue", "tissue_offset", coef)) %>%
+
+  mutate(msd.pos = paste0(round((msd.pos/n.total) * 100,1),"%"), 
+         msd.pos_inLE = round((msd.pos_inLE/in_LE) * 100, 1), 
+         LE = paste0(in_LE, " (", msd.pos_inLE, "%)"), 
+         fc = paste0(round(fc.LE, 2), 
+                    " [", 
+                    round(fc.LE.min,2), 
+                    ", ",
+                    round(fc.LE.max, 2), 
+                    "]")) %>%
+  dplyr::select(model, coef, ID, n.total, set.size, msd.pos, LE, fc) %>%
+  mutate(set.size = paste0(n.total, " (", set.size, ")")) 
+
+
+
+
+## Set significance level for gene set analysis
+sig.lev <- 0.05
+
+# Top fgsea gene categories
+gsea.cat <- gsea %>%
+    inner_join(cerno) %>%
+    mutate(sig = if_else(gsea.padj < sig.lev & cerno.padj < sig.lev, "con", 
+                         if_else(gsea.padj < sig.lev &  cerno.padj > sig.lev, "fgsea", 
+                                 if_else(gsea.padj > sig.lev &  cerno.padj < sig.lev, "cerno", "non")))) %>%
+    
+    # Change coef into two variables 
+    mutate(coef = gsub("tissue_offset", "tissue", coef)) %>%
+    separate(coef, into = c("model", "coef"), sep = "_") %>%
+     filter(sig == "fgsea") %>%
+  
+    filter(coef %in% c("copdcopd", "timeW3:copdcopd", "timePostExc:copdcopd")) %>%
+  
+  group_by(coef, model) %>%
+  
+  top_n(10, -gsea.padj) 
+
+# Top cerno categories 
+cerno.cat <- gsea %>%
+    inner_join(cerno) %>%
+    mutate(sig = if_else(gsea.padj < sig.lev & cerno.padj < sig.lev, "con", 
+                         if_else(gsea.padj < sig.lev &  cerno.padj > sig.lev, "fgsea", 
+                                 if_else(gsea.padj > sig.lev &  cerno.padj < sig.lev, "cerno", "non")))) %>%
+    
+    # Change coef into two variables 
+    mutate(coef = gsub("tissue_offset", "tissue", coef)) %>%
+    separate(coef, into = c("model", "coef"), sep = "_") %>%
+     filter(sig == "cerno") %>%
+  
+    filter(coef %in% c("copdcopd", "timeW3:copdcopd", "timePostExc:copdcopd")) %>%
+  
+  group_by(coef, model) %>%
+  
+  top_n(10, -cerno.padj) 
+
+# Top consensus
+consensus.cat <- gsea %>%
+    inner_join(cerno) %>%
+    mutate(sig = if_else(gsea.padj < sig.lev & cerno.padj < sig.lev, "con", 
+                         if_else(gsea.padj < sig.lev &  cerno.padj > sig.lev, "fgsea", 
+                                 if_else(gsea.padj > sig.lev &  cerno.padj < sig.lev, "cerno", "non")))) %>%
+    
+    # Change coef into two variables 
+    mutate(coef = gsub("tissue_offset", "tissue", coef)) %>%
+    separate(coef, into = c("model", "coef"), sep = "_") %>%
+     filter(sig == "con") %>%
+  
+   filter(coef %in% c("copdcopd", "timeW3:copdcopd", "timePostExc:copdcopd")) %>%
+
+  rowwise() %>%
+    mutate(m.p = mean(cerno.padj, gsea.padj)) %>%
+  
+  group_by(coef, model) %>%
+
+  top_n(10, -m.p) 
+
+       
+### Combine all top data frames and create table
+
+
+ rbind(gsea.cat, 
+          cerno.cat, 
+          consensus.cat)  %>%
+      inner_join(go.descr) %>%
+
+      
+      
+      
+    # Change ID/names of categories    
+        mutate(ID = gsub("GO_", "", ID), 
+               ID = gsub("HALLMARK_", "", ID), 
+               ID = gsub("KEGG_", "", ID),
+               ID = tolower(gsub("_", " ", ID)),
+               ID = firstup(ID)) %>%
+    mutate(ID = gsub("Rna", "RNA", ID), 
+           ID = gsub("Dna", "DNA", ID),
+           ID = gsub("rna", "RNA", ID), 
+           ID = gsub("dna", "DNA", ID), 
+           ID = gsub("MRNA", "mRNA", ID), 
+           ID = gsub("RRNA", "rRNA", ID), 
+           ID = gsub("AlteRNAtive", "Alternative", ID),
+           ID = gsub("ExteRNAl", "External", ID),
+           ID = gsub("Atp ", "ATP ", ID))  %>%
+   
+
+  
+  mutate(coef = factor(coef, levels = c("copdcopd", "timeW3:copdcopd", "timePostExc:copdcopd"), 
+                       labels = c("Baseline COPD vs. Control",
+                                  "Week 3: &#916;COPD vs &#916;Control", 
+                                  "Post-RCT: &#916;COPD vs &#916;Control")), 
+        
+         go.cat = factor(go.cat, levels = c("bp", "cc", "mf", "hallmark", "kegg"), 
+                         labels = c("Biological process", 
+                                    "Cellular component", 
+                                    "Molecular function", 
+                                    "Hallmark", 
+                                    "KEGG")), 
+         sig = factor(sig, levels = c("con", "fgsea", "cerno", "non"), 
+                      labels = c("Consensus", 
+                                 "GSEA", 
+                                 "Rank", 
+                                 "Non-sig")), 
+         # Make P-values for sorting and printing (print: gsea.Padj)
+         gsea.Padj = pixiedust::pval_string(gsea.padj, format = "exact"), 
+         cerno.Padj = pixiedust::pval_string(cerno.padj, format = "exact"), 
+         gsea.nes = round(gsea.nes, 2)) %>%
+        arrange(coef,model,  go.cat, sig) %>%
+      ungroup() %>%
+  
+   
+      filter(model == "nf", 
+             go.cat %in% c("Hallmark")) %>%
+   
+   
+  dplyr::select(coef, 
+                go.cat, 
+                ID, 
+                sig,
+
+                set.size, 
+                cerno.Padj, 
+                msd.pos,
+                gsea.Padj, 
+                gsea.nes, 
+                LE, 
+                fc) %>%
+  kable(col.names = c(        "Comparison", 
+                      "Gene set category", 
+                      "Gene set", 
+                      "Significance category^a^",
+                      "Set size^b^", 
+                      "Rank *P*-value^c^", 
+                      "% MSD > 0^d^", 
+                      "GSEA *P*-value^e^", 
+                      "NES", 
+                      "LE^f^", 
+                      "Log~2~ Fold-change in LE [min, max]"), 
+        caption = "Table 1. Functional annotation analysis of Healthy compared to COPD supplementation", 
+        escape = FALSE) %>%
+  kable_styling(bootstrap_options = c("condensed"), 
+                font_size = 10) %>%
+  collapse_rows(columns = c(1,2, 3), valign = "top") %>%
+
+  footnote(general = "^a^ Consensus significance indicates agreement between directional (GSEA) and non-directional (Rank) hypothesis test of overrepresentation (see methods for details). ^b^ Indicates number identified genes in gene set and total number of gene in gene set in parentheses. ^c^ Rank-based enrichment test based on minimum significant difference identifies gene-sets that are over-represented among top-ranked genes without a directional hypothesis. ^d^ Fraction of genes in gene set with unadjusted 95% CI not spanning zero i.e. minimum significant difference (MSD) > 0. ^e^ Gene-set enrichment analysis (GSEA) tests for over-representation among top and bottom genes based on Log<sub>2</sub> fold-changes \U00D7 -log<sub>10</sub>(P-values) in comparing changes from pre-RCT to pre-intro RT (\U0394) in \U0394 vitamin D<sub>3</sub> (<i>n</i> = 11) to \U0394 placebo arm (<i>n</i> = 13). Positive normalized enrichment scores (NES) indicates gene sets with higher expression in post-intro resistance training (RT) or Post-RCT compared to pre-intro RT, negative NES indicates gene sets with lower expression at respective time-points. ^f^ Number of genes in leading edge (LE, genes that contributes to the enrichment score) with the fraction of leading edge genes with unadjusted 95% CI not spanning zero (MSD > 0). *P*-values are adjusted for FDR.",
+            general_title = "", 
+           escape = FALSE,
+           footnote_as_chunk = T, title_format = c("italic", "underline"))
+
+```
+
+
+```{r suppl-table-geneontology, results = "asis"}
+
+
+### Combine all top data frames and create table
+
+
+ rbind(gsea.cat, 
+          cerno.cat, 
+          consensus.cat)  %>%
+      inner_join(go.descr) %>%
+
+      
+      
+      
+    # Change ID/names of categories    
+        mutate(ID = gsub("GO_", "", ID), 
+               ID = gsub("HALLMARK_", "", ID), 
+               ID = gsub("KEGG_", "", ID),
+               ID = tolower(gsub("_", " ", ID)),
+               ID = firstup(ID)) %>%
+    mutate(ID = gsub("Rna", "RNA", ID), 
+           ID = gsub("Dna", "DNA", ID),
+           ID = gsub("rna", "RNA", ID), 
+           ID = gsub("dna", "DNA", ID), 
+           ID = gsub("MRNA", "mRNA", ID), 
+           ID = gsub("RRNA", "rRNA", ID), 
+           ID = gsub("AlteRNAtive", "Alternative", ID),
+           ID = gsub("ExteRNAl", "External", ID),
+           ID = gsub("Atp ", "ATP ", ID))  %>%
+   
+
+  
+  mutate(coef = factor(coef, levels = c("copdcopd", "timeW3:copdcopd", "timePostExc:copdcopd"), 
+                       labels = c("Baseline COPD vs. Control",
+                                  "Week 3: &#916;COPD vs &#916;Control", 
+                                  "Post-RCT: &#916;COPD vs &#916;Control")), 
+        
+         go.cat = factor(go.cat, levels = c("bp", "cc", "mf", "hallmark", "kegg"), 
+                         labels = c("Biological process", 
+                                    "Cellular component", 
+                                    "Molecular function", 
+                                    "Hallmark", 
+                                    "KEGG")), 
+         sig = factor(sig, levels = c("con", "fgsea", "cerno", "non"), 
+                      labels = c("Consensus", 
+                                 "GSEA", 
+                                 "Rank", 
+                                 "Non-sig")), 
+         # Make P-values for sorting and printing (print: gsea.Padj)
+         gsea.Padj = pixiedust::pval_string(gsea.padj, format = "exact"), 
+         cerno.Padj = pixiedust::pval_string(cerno.padj, format = "exact"), 
+         gsea.nes = round(gsea.nes, 2)) %>%
+        arrange(coef,model,  go.cat, sig) %>%
+      ungroup() %>%
+  
+   
+      filter(model == "nf", 
+             go.cat %in% c("Biological process", "Cellular component", "Molecular function")) %>%
+   
+   
+  dplyr::select(coef, 
+                go.cat, 
+                ID, 
+                sig,
+
+                set.size, 
+                cerno.Padj, 
+                msd.pos,
+                gsea.Padj, 
+                gsea.nes, 
+                LE, 
+                fc) %>%
+  kable(col.names = c(        "Comparison", 
+                      "Gene set category", 
+                      "Gene set", 
+                      "Significance category^a^",
+                      "Set size^b^", 
+                      "Rank *P*-value^c^", 
+                      "% MSD > 0^d^", 
+                      "GSEA *P*-value^e^", 
+                      "NES", 
+                      "LE^f^", 
+                      "Log~2~ Fold-change in LE [min, max]"), 
+        caption = "Table S1. Functional annotation analysis of COPD compared to Control", 
+        escape = FALSE) %>%
+  kable_styling(bootstrap_options = c("condensed"), 
+                font_size = 10) %>%
+  collapse_rows(columns = c(1,2, 3), valign = "top") %>%
+
+  footnote(general = "^a^ Consensus significance indicates agreement between directional (GSEA) and non-directional (Rank) hypothesis test of overrepresentation (see methods for details). ^b^ Indicates number identified genes in gene set and total number of gene in gene set in parentheses. ^c^ Rank-based enrichment test based on minimum significant difference identifies gene-sets that are over-represented among top-ranked genes without a directional hypothesis. ^d^ Fraction of genes in gene set with unadjusted 95% CI not spanning zero i.e. minimum significant difference (MSD) > 0. ^e^ Gene-set enrichment analysis (GSEA) tests for over-representation among top and bottom genes based on Log<sub>2</sub> fold-changes \U00D7 -log<sub>10</sub>(P-values) in comparing changes from pre-RCT to pre-intro RT (\U0394) in \U0394 vitamin D<sub>3</sub> (<i>n</i> = 11) to \U0394 placebo arm (<i>n</i> = 13). Positive normalized enrichment scores (NES) indicates gene sets with higher expression in post-intro resistance training (RT) or Post-RCT compared to pre-intro RT, negative NES indicates gene sets with lower expression at respective time-points. ^f^ Number of genes in leading edge (LE, genes that contributes to the enrichment score) with the fraction of leading edge genes with unadjusted 95% CI not spanning zero (MSD > 0). *P*-values are adjusted for FDR.",
+            general_title = "", 
+           escape = FALSE,
+           footnote_as_chunk = T, title_format = c("italic", "underline"))
+
+
+
+
+```
+
+
+
+```{r differentially-expressed-genes-baseline, results="asis"}
+
+
+mixed <- readRDS("./data/derivedData/mixed_model/mixed_full_copd.RDS")
+
+
+
+## Create data set for visualizations     
+all_coefs <- mixed %>%
+        group_by(coef, model, interaction) %>%
+        mutate(p.adj = p.adjust(p.val, method = "fdr"), 
+               log2fc = estimate/log(2)) %>%
+        ungroup() %>%
+        dplyr::select(gene, model, coef,interaction, estimate,
+                      log2fc, se, z.val, p.val, p.adj, uniform.p, dispersion.p) 
+
+
+# Convert to gene id to symbols
+
+
+
+# named vectors of gene-level statistics
+
+gene_name_convert <- clusterProfiler::bitr(unique(all_coefs$gene), fromType = "ENSEMBL",
+                                           toType = c( "ENTREZID", "SYMBOL"),
+                                           OrgDb = org.Hs.eg.db) %>%
+  dplyr::select(gene = ENSEMBL, SYMBOL)
+
+
+
+all_coefs %>%
+  filter(abs(log2fc) > 0.5, 
+         p.adj < 0.05, 
+         coef == "copdcopd", 
+         uniform.p > 0.05) %>%
+  left_join(gene_name_convert) %>% 
+  dplyr::select(gene, SYMBOL, 
+           
+                estimate, 
+                se, 
+                z.val, 
+                p.val, 
+                p.adj, 
+                uniform.p, 
+                dispersion.p) %>%
+  arrange(p.adj) %>%
+  
+  mutate(estimate = round(estimate, 2), 
+         
+         se = round(se, 2),
+         z.val = round(z.val, 3), 
+                p.val = pixiedust::pval_string(p.val, format = "exact"), 
+                p.adj =  pixiedust::pval_string(p.adj, format = "exact"), 
+                uniform.p =  pixiedust::pval_string(uniform.p, format = "exact"), 
+                dispersion.p =  pixiedust::pval_string(dispersion.p, format = "exact"), 
+         SYMBOL = if_else(is.na(SYMBOL), "Not mapped<sup>d</sup>", SYMBOL)) %>%
+  dplyr::select(-dispersion.p) %>%
+  
+  
+  kable(col.names = c("Ensembl gene ID", 
+                      "Gene Symbol", 
+                   
+                      "Log fold-change",
+                      "SE", 
+                      "<i>Z</i>-value", 
+                      "<i>P</i>-value", 
+                      "Adjusted <i>P</i>-value^a^",
+                      "Uniformity (<i>P</i>-value)^b^"), 
+        caption = "Genes identified as differentially expressed between COPD vs. Healthy at Week 0", 
+        escape = FALSE) %>%
+  kable_styling(bootstrap_options = c("condensed"), 
+                font_size = 10) %>%
+  collapse_rows(columns = c(1), valign = "top") %>%
+
+  footnote(general = "<sup>a</sup> *P*-values are adjusted for FDR. <sup>b</sup> Raw *P*-values from simulation based tests of uniformity of residuals where low values indicates problematic models (see methods). <sup>d</sup> No official gene symbol available, not included in enrichment analyses.",
+            general_title = "", 
+           escape = FALSE,
+           footnote_as_chunk = T, title_format = c("italic", "underline"))
+  
+
+
+```
+
+
+```{r genes-diff-expressed-in-gene-sets, results="asis"}
+
+
+
+
+
+
+
+
+
+full_gsea_df <- readRDS(file = "./data/derivedData/fgsea_full.RDS")
+
+gsea <- full_gsea_df %>%
+  dplyr::select(ID = pathway,
+                leadingEdge,
+                coef) %>%
+  filter(ID %in% c("HALLMARK_OXIDATIVE_PHOSPHORYLATION", 
+                   "HALLMARK_MYOGENESIS"), 
+         coef %in% c("nf_copdcopd", 
+                      "nf_timeW3:copdcopd", 
+                      "nf_timePostExc:copdcopd"))
+
+
+### Extract genes from leading edges
+
+oxphos_goi_baseline <- gsea %>%
+  filter(ID %in% c("HALLMARK_OXIDATIVE_PHOSPHORYLATION"), 
+         coef %in% c("nf_copdcopd")) %>%
+  pull(leadingEdge) %>%
+  unlist()
+
+myogenesis_goi_baseline <- gsea %>%
+  filter(ID %in% c("HALLMARK_MYOGENESIS"), 
+         coef %in% c("nf_copdcopd")) %>%
+  pull(leadingEdge) %>%
+  unlist()
+
+
+
+
+# Load gsea and cerno statistics
+
+# full gsea
+full_gsea_df <- readRDS(file = "./data/derivedData/fgsea_full.RDS")
+
+gsea <- full_gsea_df %>%
+  dplyr::select(ID = pathway,
+                gsea.padj = padj,
+                gsea.p = pval, 
+                gsea.es = ES, 
+                gsea.nes = NES, 
+                coef) 
+
+
+
+# full cerno
+cerno.test <- readRDS("./data/derivedData/cerno.RDS")
+
+cerno <- cerno.test %>%
+  dplyr::select(ID = Title,
+                cerno, 
+                N1, 
+                cerno.p = P.Value,
+                cerno.padj = adj.P.Val, 
+                go.cat, 
+                coef) 
+
+
+
+#### Read gene set descriptives  #####
+go.descr <- readRDS(file = "./data/derivedData/geneset_descriptives.RDS") %>%
+  mutate(coefs = gsub("tissue_offset", "tissue", coefs)) %>%
+  separate(coefs, into = c("model", "coef"), sep = "_") %>%
+  mutate(coef = gsub("tissue", "tissue_offset", coef)) %>%
+  
+  mutate(msd.pos = paste0(round((msd.pos/n.total) * 100,1),"%"), 
+         msd.pos_inLE = round((msd.pos_inLE/in_LE) * 100, 1), 
+         LE = paste0(in_LE, " (", msd.pos_inLE, "%)"), 
+         fc = paste0(round(fc.LE, 2), 
+                     " [", 
+                     round(fc.LE.min,2), 
+                     ", ",
+                     round(fc.LE.max, 2), 
+                     "]")) %>%
+  dplyr::select(model, coef, ID, n.total, set.size, msd.pos, LE, fc) %>%
+  mutate(set.size = paste0(n.total, " (", set.size, ")")) 
+
+
+
+# Top fgsea gene categories
+gene_set_stats <- gsea %>%
+  inner_join(cerno) %>%
+
+  # Change coef into two variables 
+  mutate(coef = gsub("tissue_offset", "tissue", coef)) %>%
+  separate(coef, into = c("model", "coef"), sep = "_") %>%
+  
+  filter(model == "nf", 
+         coef %in% c("copdcopd", "timeW3:copdcopd", "timePostExc:copdcopd"), 
+         ID %in% c("HALLMARK_OXIDATIVE_PHOSPHORYLATION", 
+                   "HALLMARK_MYOGENESIS")) 
+
+
+
+## Load DE model data
+
+mixed_dat <- readRDS(file = "./data/derivedData/mixed_model/mixed_full_copd.RDS")
+
+## Convert gene ids to symbol
+
+gene_name_convert <- clusterProfiler::bitr(unique(mixed_dat$gene), fromType = "ENSEMBL",
+                                           toType = c( "ENTREZID", "SYMBOL"),
+                                           OrgDb = org.Hs.eg.db) %>%
+  dplyr::select(gene = ENSEMBL, SYMBOL)
+
+
+
+## Baseline differences plot #####################
+
+
+mixed_dat %>%
+     group_by(coef, model, interaction) %>%
+        mutate(p.adj = p.adjust(p.val, method = "fdr"), 
+               log2fc = estimate/log(2)) %>%
+  inner_join(gene_name_convert) %>%
+  filter(model == "nf", 
+         coef == "copdcopd") %>%
+  mutate(gene_set_baseline = if_else(SYMBOL %in% myogenesis_goi_baseline, "myogenesis", 
+                                     if_else(SYMBOL %in% oxphos_goi_baseline, "oxphos",
+                                             "other"))) %>%
+  filter(gene_set_baseline != "other") %>%
+  
+
+  
+  mutate(gene_set_baseline = factor(gene_set_baseline, 
+                                    levels = c("oxphos", "myogenesis"), 
+                                    labels = c("Oxidative phosphorylation",
+                                               "Myogenesis"))) %>%
+  
+
+  
+  filter(p.adj < 0.1, 
+         coef == "copdcopd", 
+         uniform.p > 0.05) %>%
+  ungroup() %>%
+  
+
+  dplyr::select(gene, SYMBOL,
+                gene_set_baseline,
+           
+                estimate, 
+                se, 
+                z.val, 
+                p.val, 
+                p.adj, 
+                uniform.p, 
+                dispersion.p) %>%
+  arrange(gene_set_baseline, p.adj) %>%
+  
+  mutate(estimate = round(estimate, 2), 
+         
+         se = round(se, 2),
+         z.val = round(z.val, 3), 
+                p.val = pixiedust::pval_string(p.val, format = "exact"), 
+                p.adj =  pixiedust::pval_string(p.adj, format = "exact"), 
+                uniform.p =  pixiedust::pval_string(uniform.p, format = "exact"), 
+                dispersion.p =  pixiedust::pval_string(dispersion.p, format = "exact"), 
+         SYMBOL = if_else(is.na(SYMBOL), "Not mapped<sup>d</sup>", SYMBOL)) %>%
+  dplyr::select(-dispersion.p) %>%
+  
+  
+  kable(col.names = c("Ensembl gene ID", 
+                      "Gene Symbol", 
+                      "Gene set",
+                   
+                      "Log fold-change",
+                      "SE", 
+                      "<i>Z</i>-value", 
+                      "<i>P</i>-value", 
+                      "Adjusted <i>P</i>-value^a^",
+                      "Uniformity (<i>P</i>-value)^b^"), 
+        caption = "Genes identified as differentially expressed between COPD vs. Healthy at Week 0", 
+        escape = FALSE) %>%
+  kable_styling(bootstrap_options = c("condensed"), 
+                font_size = 10) %>%
+  collapse_rows(columns = c(1,3), valign = "top") %>%
+
+  footnote(general = "<sup>a</sup> *P*-values are adjusted for FDR. <sup>b</sup> Raw *P*-values from simulation based tests of uniformity of residuals where low values indicates problematic models (see methods). <sup>d</sup> No official gene symbol available, not included in enrichment analyses.",
+            general_title = "", 
+           escape = FALSE,
+           footnote_as_chunk = T, title_format = c("italic", "underline"))
+  
+  
+  
+
+
+
+```
+
+
+```{r mitocarta-table}
+
+
+
+mitocarta <- readRDS("./data/derivedData/cerno_fgsea_mitocarta.RDS")
+
+
+
+gsea <- mitocarta$fgsea.mito %>%
+    dplyr::select(ID = pathway,
+                  gsea.padj = padj,
+                  gsea.p = pval, 
+                  gsea.es = ES, 
+                  gsea.nes = NES, 
+                  coef) 
+
+
+
+cerno <- mitocarta$cerno.mito %>%
+    dplyr::select(ID = Title,
+                  cerno, 
+                  N1, 
+                  cerno.p = P.Value,
+                  cerno.padj = adj.P.Val, 
+                  go.cat, 
+                  coef) 
+
+
+
+
+
+## Set significance level for gene set analysis
+sig.lev <- 0.1
+
+# Top fgsea gene categories
+gsea.cat <- gsea %>%
+    inner_join(cerno) %>%
+    mutate(sig = if_else(gsea.padj < sig.lev & cerno.padj < sig.lev, "con", 
+                         if_else(gsea.padj < sig.lev &  cerno.padj > sig.lev, "fgsea", 
+                                 if_else(gsea.padj > sig.lev &  cerno.padj < sig.lev, "cerno", "non")))) %>%
+    
+    # Change coef into two variables 
+
+     filter(sig == "fgsea") %>%
+  
+    filter(coef %in% c("copdcopd", "timeW3:copdcopd", "timePostExc:copdcopd")) %>%
+  
+  group_by(coef) %>%
+  
+  top_n(10, -gsea.padj) 
+
+# Top cerno categories 
+cerno.cat <- gsea %>%
+    inner_join(cerno) %>%
+    mutate(sig = if_else(gsea.padj < sig.lev & cerno.padj < sig.lev, "con", 
+                         if_else(gsea.padj < sig.lev &  cerno.padj > sig.lev, "fgsea", 
+                                 if_else(gsea.padj > sig.lev &  cerno.padj < sig.lev, "cerno", "non")))) %>%
+     filter(sig == "cerno") %>%
+    filter(coef %in% c("copdcopd", "timeW3:copdcopd", "timePostExc:copdcopd")) %>%
+  group_by(coef) %>%
+  top_n(10, -cerno.padj) 
+
+# Top consensus
+consensus.cat <- gsea %>%
+    inner_join(cerno) %>%
+    mutate(sig = if_else(gsea.padj < sig.lev & cerno.padj < sig.lev, "con", 
+                         if_else(gsea.padj < sig.lev &  cerno.padj > sig.lev, "fgsea", 
+                                 if_else(gsea.padj > sig.lev &  cerno.padj < sig.lev, "cerno", "non")))) %>%
+    
+    # Change coef into two variables 
+     filter(sig == "con") %>%
+  
+   filter(coef %in% c("copdcopd", "timeW3:copdcopd", "timePostExc:copdcopd")) %>%
+
+  rowwise() %>%
+    mutate(m.p = mean(cerno.padj, gsea.padj)) %>%
+  
+  group_by(coef) %>%
+
+  top_n(10, -m.p) 
+
+
+
+
+
+
+
+
+
+ rbind(gsea.cat, 
+          cerno.cat, 
+          consensus.cat)  %>%
+
+    # Change ID/names of categories    
+
+  
+  mutate(coef = factor(coef, levels = c("copdcopd",
+                                        "timeW3:copdcopd",
+                                        "timePostExc:copdcopd"), 
+                       labels = c("Baseline COPD vs. Control",
+                                  "Week 3: &#916;COPD vs &#916;Control", 
+                                  "Post-RCT: &#916;COPD vs &#916;Control")), 
+        
+   
+         sig = factor(sig, levels = c("con", "fgsea", "cerno", "non"), 
+                      labels = c("Consensus", 
+                                 "GSEA", 
+                                 "Rank", 
+                                 "Non-sig")), 
+         # Make P-values for sorting and printing (print: gsea.Padj)
+         gsea.Padj = pixiedust::pval_string(gsea.padj, format = "exact"), 
+         cerno.Padj = pixiedust::pval_string(cerno.padj, format = "exact"), 
+         gsea.nes = round(gsea.nes, 2)) %>%
+        arrange(coef, sig) %>%
+      ungroup() %>%
+  
+
+   
+  dplyr::select(coef, 
+           
+                ID, 
+                sig,
+
+                cerno.Padj, 
+        
+                gsea.Padj, 
+                gsea.nes) %>%
+   
+  kable(col.names = c(        "Comparison", 
+                      "Gene set category", 
+                
+                      "Significance category^a^",
+                 
+                      "Rank *P*-value^c^", 
+              
+                      "GSEA *P*-value^e^", 
+                      "NES"), 
+        caption = "Table. Functional annotation analysis of COPD compared to Control using Miocarta v 3.0", 
+        escape = FALSE) %>%
+  kable_styling(bootstrap_options = c("condensed"), 
+                font_size = 10) %>%
+  collapse_rows(columns = c(1,2, 3), valign = "top") %>%
+
+  footnote(general = "^a^ Consensus significance indicates agreement between directional (GSEA) and non-directional (Rank) hypothesis test of overrepresentation (see methods for details). ^b^ Indicates number identified genes in gene set and total number of gene in gene set in parentheses. ^c^ Rank-based enrichment test based on minimum significant difference identifies gene-sets that are over-represented among top-ranked genes without a directional hypothesis. ^d^ Fraction of genes in gene set with unadjusted 95% CI not spanning zero i.e. minimum significant difference (MSD) > 0. ^e^ Gene-set enrichment analysis (GSEA) tests for over-representation among top and bottom genes based on Log<sub>2</sub> fold-changes \U00D7 -log<sub>10</sub>(P-values) in comparing changes from pre-RCT to pre-intro RT (\U0394) in \U0394 vitamin D<sub>3</sub> (<i>n</i> = 11) to \U0394 placebo arm (<i>n</i> = 13). Positive normalized enrichment scores (NES) indicates gene sets with higher expression in post-intro resistance training (RT) or Post-RCT compared to pre-intro RT, negative NES indicates gene sets with lower expression at respective time-points. ^f^ Number of genes in leading edge (LE, genes that contributes to the enrichment score) with the fraction of leading edge genes with unadjusted 95% CI not spanning zero (MSD > 0). *P*-values are adjusted for FDR.",
+            general_title = "", 
+           escape = FALSE,
+           footnote_as_chunk = T, title_format = c("italic", "underline"))
+
+
+
+
+
+```
+
+
+
+
+
+```{r miocarta-expressed-genes}
+
+
+## Get pathways
+mito_pathways <- read_excel("./data/annotations/Human.MitoCarta3.0.xls", 
+                         sheet = "C MitoPathways") %>%
+  dplyr::select("MitoPathway", 
+                "Genes") %>%
+  data.frame()
+
+
+results <- list()
+
+for(i in 1:nrow(mito_pathways)) {
+  
+  results[[i]] <- data.frame(ID = unlist(strsplit(mito_pathways[i,2], split = ", ")), 
+             Title = mito_pathways[i,1])
+
+}
+
+mito_pathways_df <- bind_rows(results)
+
+
+
+
+mito_skm <- read_excel("./data/annotations/Human.MitoCarta3.0.xls", 
+                        sheet = "B Human All Genes") %>%
+  dplyr::select(HumanGeneID, Symbol, 
+                skeletalmuscle_total_peak_intensity_log10) %>%
+  filter(skeletalmuscle_total_peak_intensity_log10 > 0) %>%
+
+  distinct(Symbol) %>%
+  pull(Symbol)
+
+
+
+
+
+mixed_dat <- readRDS(file = "./data/derivedData/mixed_model/mixed_full_copd.RDS")
+
+
+gene_name_convert <- clusterProfiler::bitr(unique(mixed_dat$gene), fromType = "ENSEMBL",
+                                           toType = c( "ENTREZID", "SYMBOL"),
+                                           OrgDb = org.Hs.eg.db) %>%
+  dplyr::select(gene = ENSEMBL, SYMBOL)
+
+
+## Associate each gene with n categories from mitocarta
+# use function to do rowwise operations on data frame
+gene_pathway_convert <- function(x, df) {
+  
+  df <- df
+   pathways <- df %>%
+        filter(ID == x) %>%
+        pull(Title) %>%
+        paste(collapse = ", ")
+
+return(pathways)
+  
+}
+
+
+mixed_dat %>%
+  inner_join(gene_name_convert) %>%
+  
+  filter(model == "nf", 
+         uniform.p > 0.05, 
+         coef %in%  c("copdcopd", "timeW3:copdcopd", "timePostExc:copdcopd"), 
+         SYMBOL %in% mito_skm) %>%
+  group_by(coef) %>%
+  mutate(p.adj = p.adjust(p.val, method = "fdr"), 
+         log2fc = estimate/log(2)) %>%
+  
+  filter(p.adj < 0.05) %>%
+  dplyr::select(coef, SYMBOL, log2fc, estimate, se, z.val, p.adj) %>%
+  
+  rowwise() %>%
+  mutate(pathways = gene_pathway_convert(SYMBOL , mito_pathways_df), 
+         pathways = if_else(pathways == "", "No pathway association", pathways), 
+         pathways.nr = if_else(pathways == "No pathway association", 99, 0)) %>%
+  
+  ungroup() %>%
+  arrange(coef,  pathways.nr,p.adj) %>%
+  dplyr::select(-pathways.nr) %>%
+    mutate(coef = factor(coef, levels = c("copdcopd",
+                                        "timeW3:copdcopd",
+                                        "timePostExc:copdcopd"), 
+                       labels = c("Baseline COPD vs. Control",
+                                  "Week 3: &#916;COPD vs &#916;Control", 
+                                  "Post-RCT: &#916;COPD vs &#916;Control")), 
+        
+   
+
+         # Make P-values for sorting and printing (print: gsea.Padj)
+         p.adj = pixiedust::pval_string(p.adj, format = "exact"), 
+         log2fc = round(log2fc, 2), 
+         estimate = round(estimate, 2), 
+         se = round(se, 3),
+         z.val = round(z.val, 2)) %>%
+
+      ungroup() %>%
+  
+
+   
+  kable(col.names = c("Comparison", 
+                      "Gene symbol", 
+                
+                      "Log<sub>2</sub> fold-change",
+                 
+                      "Estimate^a^", 
+                      "SE^a^", 
+                      "*Z*-value^a^", 
+                      "*P*-values (FDR)^b^",
+                      "Associated pathways^c^"), 
+        caption = "Table. Differential gene expression analysis of COPD compared to Control using Miocarta v 3.0", 
+        escape = FALSE) %>%
+  kable_styling(bootstrap_options = c("condensed"), 
+                font_size = 10) %>%
+  collapse_rows(columns = c(1, 8), valign = "top") %>%
+
+  footnote(general = "<sup>a</sup> Estimate on the natural log scale together with standard errors (SE) and *Z*-values from generalized mixed linear models. <sup>b</sup> *P*-values are corrected per coefficient for false discovery rate (FDR) <sup>c</sup> Mitocarta v 3.0 pathways associated with each gene",
+            general_title = "", 
+           escape = FALSE,
+           footnote_as_chunk = T, title_format = c("italic", "underline"))
+
+
+
+
+```
+
+
+```{r time-effects-mitocarta-genes}
+
+time_effects <- readRDS(file = "./data/derivedData/mixed_model/mixed_full_mitocarta_time.RDS")
+
+
+
+time_effects %>%
+    inner_join(gene_name_convert) %>%
+  filter(model == "nf", 
+         coef %in% c("timeW3", "timePostExc")) %>%
+  
+  group_by(coef) %>%
+  mutate(p.adj = p.adjust(p.val, "fdr"), 
+         log2fc = estimate/log(2),
+         reg = if_else(estimate > 0, "up", "dn")) %>%
+  filter(p.adj < 0.05) %>%
+  
+
+  dplyr::select(coef, SYMBOL, log2fc, estimate, se, z.val, p.adj) %>%
+  rowwise() %>%
+  mutate(pathways = gene_pathway_convert(SYMBOL , mito_pathways_df), 
+         pathways = if_else(pathways == "", "No pathway association", pathways), 
+         pathways.nr = if_else(pathways == "No pathway association", 99, 0), 
+         coef = factor(coef, levels = c("timeW3",
+                                        "timePostExc"), 
+                       labels = c("Week 3 vs. Baseline", 
+                                  "Post-RCT vs. Baseline"))) %>%
+  
+  ungroup() %>%
+  arrange(coef,  pathways.nr, estimate) %>%
+  dplyr::select(-pathways.nr) %>%
+    mutate( 
+        
+   
+
+         # Make P-values for sorting and printing (print: gsea.Padj)
+         p.adj = pixiedust::pval_string(p.adj, format = "exact"), 
+         log2fc = round(log2fc, 2), 
+         estimate = round(estimate, 2), 
+         se = round(se, 3),
+         z.val = round(z.val, 2)) %>%
+
+      ungroup() %>%
+  
+
+   
+  kable(col.names = c("Comparison", 
+                      "Gene symbol", 
+                
+                      "Log<sub>2</sub> fold-change",
+                 
+                      "Estimate^a^", 
+                      "SE^a^", 
+                      "*Z*-value^a^", 
+                      "*P*-values (FDR)^b^",
+                      "Associated pathways^c^"), 
+        caption = "Table. Differential gene expression analysis of COPD compared to Control using Miocarta v 3.0", 
+        escape = FALSE) %>%
+  kable_styling(bootstrap_options = c("condensed"), 
+                font_size = 10) %>%
+  collapse_rows(columns = c(1, 8), valign = "top") %>%
+
+  footnote(general = "<sup>a</sup> Estimate on the natural log scale together with standard errors (SE) and *Z*-values from generalized mixed linear models. <sup>b</sup> *P*-values are corrected per coefficient for false discovery rate (FDR) <sup>c</sup> Mitocarta v 3.0 pathways associated with each gene",
+            general_title = "", 
+           escape = FALSE,
+           footnote_as_chunk = T, title_format = c("italic", "underline"))
+
+
+  
+
+
+
+
+
+```
+
+
+
+
+
+
