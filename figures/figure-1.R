@@ -264,7 +264,7 @@ volcano_fig <- volcano_fig_dat %>%
   guides(fill = guide_legend()) +
   
   labs(y = "-Log<sub>10</sub>(adjusted *P*-value)", 
-       x = "Log<sub>2</sub> fold-difference") +
+       x = "Log<sub>2</sub> fold-difference (COPD - Healthy)") +
   
   plot_theme() + 
   theme(legend.position = c(0.85, 0.87), 
@@ -419,7 +419,7 @@ baseline_comp <- baseline_dat %>%
                      breaks = c(1, 2, 3), 
                      expand = c(0,0)) +
   
-  labs(y = "Fold-difference at baseline\n(COPD / Healthy)") +
+  labs(y = "Fold-difference at baseline\n(COPD - Healthy)") +
   
   plot_theme() + 
   theme(axis.title.x = element_blank(), 
@@ -594,7 +594,7 @@ figure_1 <- plot_grid(
   ncol = 2, 
                       rel_widths = c(0.55, 0.45)) +
   
-  draw_plot_label(label=c("a", "b", "c"),
+  draw_plot_label(label=c("A", "B", "C"),
                   x =   c(0.02, 0.02, 0.57), 
                   y =   c(0.98, 0.48, 0.91),
                   hjust=.5, vjust=.5, size = 14)
